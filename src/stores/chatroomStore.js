@@ -5,6 +5,7 @@ import { v4 as uuidv4 } from 'uuid';
 
 export const useChatroomStore = create(
   persist(
+    
     (set, get) => ({
       // Dummy data for initial display
       chatrooms: [
