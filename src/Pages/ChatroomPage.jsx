@@ -1,4 +1,4 @@
-// src/pages/ChatroomPage.jsx (Updated for UI and Scroll Fixes)
+// src/pages/ChatroomPage.jsx
 import React, {
   useState,
   useEffect,
@@ -19,6 +19,16 @@ const formatTime = (timestamp) =>
     minute: "2-digit",
   });
 
+const cleanGeminiText = (text) => {
+  if (!text) return "";
+  let cleanedText = text;
+
+  cleanedText = cleanedText.replace(/^\*\s+/gm, "");
+
+  cleanedText = cleanedText.replace(/\*\*(.*?)\*\*/g, "$1");
+
+  return cleanedText;
+};
 const GEMINI_API_KEY = import.meta.env.VITE_URL_CHATROOM;
 const GEMINI_API_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${GEMINI_API_KEY}`;
 
@@ -42,6 +52,8 @@ const ChatroomPage = () => {
   const loadMoreRef = useRef(null);
   const chatContainerRef = useRef(null);
   const previousScrollHeightRef = useRef(0);
+  const prevAllStoredMessagesLengthRef = useRef(0);
+
   const allStoredMessages = useMessageStore(
     (state) => state.messages[chatroomId] || []
   );
@@ -64,6 +76,7 @@ const ChatroomPage = () => {
     setLoadedMessageCount(MESSAGES_PER_PAGE);
     setHasMoreHistory(true);
     setIsLoadingHistory(false);
+    prevAllStoredMessagesLengthRef.current = 0;
   }, [
     chatroomId,
     chatroom,
@@ -74,15 +87,27 @@ const ChatroomPage = () => {
 
   useEffect(() => {
     if (chatEndRef.current && chatContainerRef.current) {
-      const { scrollTop, scrollHeight, clientHeight } =
-        chatContainerRef.current;
-      const isAtBottom = scrollHeight - scrollTop <= clientHeight + 100;
+      const currentScrollTop = chatContainerRef.current.scrollTop;
+      const currentScrollHeight = chatContainerRef.current.scrollHeight;
+      const currentClientHeight = chatContainerRef.current.clientHeight;
 
-      if (allStoredMessages.length > messagesToDisplay.length || isAtBottom) {
+      const hasNewMessages =
+        allStoredMessages.length > prevAllStoredMessagesLengthRef.current;
+
+      const isCurrentlyAtBottom =
+        currentScrollHeight - currentScrollTop - currentClientHeight < 100;
+
+      if (
+        hasNewMessages &&
+        (isCurrentlyAtBottom || prevAllStoredMessagesLengthRef.current === 0) &&
+        !isLoadingHistory
+      ) {
         chatEndRef.current.scrollIntoView({ behavior: "smooth" });
       }
+
+      prevAllStoredMessagesLengthRef.current = allStoredMessages.length;
     }
-  }, [allStoredMessages.length, messagesToDisplay.length]);
+  }, [allStoredMessages.length, isLoadingHistory]);
 
   const loadMoreHistory = useCallback(async () => {
     if (isLoadingHistory || !hasMoreHistory || !chatContainerRef.current) {
@@ -131,6 +156,11 @@ const ChatroomPage = () => {
       }
     };
   }, [loadMoreHistory, isLoadingHistory, hasMoreHistory]);
+  useEffect(() => {
+    if (!isLoadingHistory) {
+      chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    }
+  }, [messagesToDisplay, isTyping, isLoadingHistory]);
 
   useEffect(() => {
     if (
@@ -189,7 +219,7 @@ const ChatroomPage = () => {
         ) {
           geminiText = result.candidates[0].content.parts[0].text;
         }
-
+        geminiText = cleanGeminiText(geminiText);
         const aiMessage = {
           id: uuidv4(),
           text: geminiText,
@@ -258,7 +288,6 @@ const ChatroomPage = () => {
     await getGeminiResponse("User uploaded an image.");
   };
 
-  // --- Copy-to-Clipboard Feature ---
   const handleCopyMessage = (text) => {
     navigator.clipboard.writeText(text);
     toast.success("Message copied to clipboard!");
@@ -268,7 +297,6 @@ const ChatroomPage = () => {
 
   return (
     <div className="flex flex-col h-screen bg-gray-100 dark:bg-gray-900 text-gray-900 dark:text-gray-100">
-      {/* Header */}
       <header className="bg-white dark:bg-gray-800 shadow-sm p-4 flex items-center border-b border-gray-200 dark:border-gray-700">
         <Link
           to="/dashboard"
@@ -292,13 +320,11 @@ const ChatroomPage = () => {
         <h1 className="text-xl font-bold truncate">{chatroom.title}</h1>
       </header>
 
-      {/* Chat Messages Area - Scrollable Container */}
       <div
         className="flex-grow overflow-y-auto p-6 space-y-4"
         style={{ display: "flex", flexDirection: "column" }}
         ref={chatContainerRef}
       >
-        {/* Infinite Scroll Load Trigger (placed at the top) */}
         {hasMoreHistory && (
           <div
             ref={loadMoreRef}
@@ -320,72 +346,70 @@ const ChatroomPage = () => {
           </div>
         )}
 
-        {/* Display Messages */}
-        {messagesToDisplay.map((msg) => (
-          <div
-            key={msg.id}
-            className={`flex ${
-              msg.sender === "user" ? "justify-end" : "justify-start"
-            }`}
-          >
-            <div
-              className={`max-w-xl p-4 rounded-xl shadow-md relative group 
-                ${
-                  msg.sender === "user"
-                    ? "bg-blue-500 text-white rounded-br-none"
-                    : "bg-gray-200 dark:bg-gray-700 text-gray-900 dark:text-gray-100 rounded-bl-none"
-                }`}
-            >
-              {/* Message Content */}
-              {msg.type === "text" && (
-                <p className="whitespace-pre-wrap">{msg.text}</p>
-              )}{" "}
-              {/* Added whitespace-pre-wrap */}
-              {msg.type === "image" && (
-                <img
-                  src={msg.url}
-                  alt="Uploaded"
-                  className="max-w-full rounded-lg"
-                  style={{ maxHeight: "300px" }}
-                />
-              )}
-              {/* Timestamp */}
+        {messagesToDisplay.map(
+          (msg) =>
+            (msg.type === "image" ||
+              (msg.type === "text" && msg.text && msg.text.trim() !== "")) && (
               <div
-                className={`text-xs mt-2 ${
-                  msg.sender === "user"
-                    ? "text-blue-100"
-                    : "text-gray-500 dark:text-gray-400"
+                key={msg.id}
+                className={`flex ${
+                  msg.sender === "user" ? "justify-end" : "justify-start"
                 }`}
               >
-                {formatTime(msg.timestamp)}
-              </div>
-              {/* Copy-to-Clipboard Button (only for text messages) */}
-              {msg.type === "text" && (
-                <button
-                  onClick={() => handleCopyMessage(msg.text)}
-                  className="absolute top-2 right-2 text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 opacity-0 group-hover:opacity-100 transition-opacity"
-                  aria-label="Copy message"
+                <div
+                  className={`max-w-xl p-4 rounded-xl shadow-md relative group 
+                  ${
+                    msg.sender === "user"
+                      ? "bg-blue-500 text-white rounded-br-none"
+                      : "bg-gray-200 dark:bg-gray-700 text-gray-900 dark:text-gray-100 rounded-bl-none"
+                  }`}
                 >
-                  {/* <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-                    <path d="M8 3a1 1 0 000 2h3a1 1 0 100-2H8z" />
-                    <path d="M3 8a2 2 0 012-2h3.5a1 1 0 011 1v1.5H15a1 1 0 011 1v10a1 1 0 01-1 1H5a1 1 0 01-1-1v-4H3a1 1 0 01-1-1V8z" />
-                  </svg> */}
-                  <FiClipboard
-                    className="
-                text-blue-600
-                hover:text-blue-800
-                transition
-                cursor-pointer
-            "
-                    size={20}
-                  />
-                </button>
-              )}
-            </div>
-          </div>
-        ))}
+                  {msg.type === "text" &&
+                    msg.text &&
+                    msg.text.trim() !== "" && (
+                      <p className="whitespace-pre-wrap">{msg.text}</p>
+                    )}
+                  {msg.type === "image" && (
+                    <img
+                      src={msg.url}
+                      alt="Uploaded"
+                      className="max-w-full rounded-lg"
+                      style={{ maxHeight: "300px" }}
+                    />
+                  )}
+                  <div
+                    className={`text-xs mt-2 ${
+                      msg.sender === "user"
+                        ? "text-blue-100"
+                        : "text-gray-500 dark:text-gray-400"
+                    }`}
+                  >
+                    {formatTime(msg.timestamp)}
+                  </div>
+                  {msg.type === "text" &&
+                    msg.text &&
+                    msg.text.trim() !== "" && (
+                      <button
+                        onClick={() => handleCopyMessage(msg.text)}
+                        className="absolute top-2 right-2 text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 opacity-0 group-hover:opacity-100 transition-opacity"
+                        aria-label="Copy message"
+                      >
+                        <FiClipboard
+                          className="
+                        text-blue-600
+                        hover:text-blue-800
+                        transition
+                        cursor-pointer
+                    "
+                          size={20}
+                        />
+                      </button>
+                    )}
+                </div>
+              </div>
+            )
+        )}
 
-        {/* Gemini Typing Indicator */}
         {isTyping && (
           <div className="flex justify-start">
             <div className="bg-gray-200 dark:bg-gray-700 p-4 rounded-xl rounded-bl-none max-w-sm shadow-md">
@@ -396,17 +420,14 @@ const ChatroomPage = () => {
           </div>
         )}
 
-        {/* Auto-scroll reference point */}
         <div ref={chatEndRef} />
       </div>
 
-      {/* Message Input and Image Upload Area */}
       <footer className="bg-white dark:bg-gray-800 p-4 border-t border-gray-200 dark:border-gray-700 shadow-lg">
         <form
           onSubmit={handleSendMessage}
           className="flex items-center space-x-4"
         >
-          {/* Image Upload Button */}
           <label
             htmlFor="image-upload"
             className="cursor-pointer text-gray-500 hover:text-blue-600 transition duration-150"
@@ -434,17 +455,15 @@ const ChatroomPage = () => {
             className="hidden"
           />
 
-          {/* Message Input Field */}
           <input
             type="text"
             value={inputMessage}
             onChange={(e) => setInputMessage(e.target.value)}
             placeholder="Message Gemini..."
             className="flex-grow px-4 py-3 rounded-full bg-gray-200 dark:bg-gray-700 border border-transparent focus:outline-none focus:border-blue-500 transition duration-200"
-            disabled={isTyping || isSending} // Disable input while sending or typing
+            disabled={isTyping || isSending}
           />
 
-          {/* Send Button */}
           <button
             type="submit"
             className="p-3 bg-blue-600 text-white rounded-full hover:bg-blue-700 transition duration-200 disabled:bg-gray-500"

@@ -1,4 +1,3 @@
-// src/components/CountrySelect.jsx
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 
@@ -7,10 +6,8 @@ const CountrySelect = ({ onChange, value }) => {
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
-    // Fetch country data (dial codes and names)
     const fetchCountries = async () => {
       try {
-        // Fetch only necessary fields for efficiency
         const response = await axios.get('https://restcountries.com/v3.1/all?fields=name,cca2,idd');
         const formattedCountries = response.data
           .filter(country => country.idd?.root && country.idd?.suffixes)

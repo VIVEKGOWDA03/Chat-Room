@@ -1,4 +1,3 @@
-// src/App.jsx
 import React, { useEffect } from "react";
 import {
   BrowserRouter as Router,
@@ -8,7 +7,7 @@ import {
 } from "react-router-dom";
 
 import { useAuthStore } from "./stores/authStore";
-import { Toaster } from "react-hot-toast"; // Ensure Toaster is imported here or in LoginPage
+import { Toaster } from "react-hot-toast"; 
 import LoginPage from "./Pages/LoginPage";
 import DashboardPage from "./Pages/DashboardPage";
 import ChatroomPage from "./Pages/ChatroomPage";
@@ -20,7 +19,6 @@ const PrivateRoute = ({ children }) => {
 
 const App = () => {
   const isDarkMode = useThemeStore((state) => state.isDarkMode);
-  // Apply 'dark' class to the html element based on Zustand state
   useEffect(() => {
     if (isDarkMode) {
       document.documentElement.classList.add("dark");

@@ -8,13 +8,14 @@ import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useThemeStore } from "../stores/themeStore";
+import Switch from "../components/UI/Switch";
 
 const DashboardPage = () => {
   const { user, logout } = useAuthStore();
   const { chatrooms, createChatroom, deleteChatroom } = useChatroomStore();
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState("");
-  const { isDarkMode, toggleDarkMode } = useThemeStore(); // Correctly imported and used
+  const { isDarkMode, toggleDarkMode } = useThemeStore();
 
   // Form validation for creating a chatroom
   const chatroomSchema = z.object({
@@ -43,10 +44,37 @@ const DashboardPage = () => {
 
   // Handle chatroom deletion
   const handleDelete = (id, title) => {
-    if (window.confirm(`Are you sure you want to delete "${title}"?`)) {
-      deleteChatroom(id);
-      toast.success(`Chatroom '${title}' deleted.`);
-    }
+    // Replaced window.confirm with a custom modal for better UX and consistency
+    // For this example, we'll use a simple toast confirm, but a full modal would be better.
+    toast(
+      (t) => (
+        <div className="flex flex-col items-center p-2">
+          <p className="text-center mb-3">
+            Are you sure you want to delete{" "}
+            <span className="font-bold">"{title}"</span>?
+          </p>
+          <div className="flex space-x-3">
+            <button
+              className="px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 transition"
+              onClick={() => {
+                deleteChatroom(id);
+                toast.success(`Chatroom '${title}' deleted.`);
+                toast.dismiss(t.id);
+              }}
+            >
+              Delete
+            </button>
+            <button
+              className="px-4 py-2 bg-gray-300 text-gray-800 rounded-md hover:bg-gray-400 transition"
+              onClick={() => toast.dismiss(t.id)}
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      ),
+      { duration: Infinity }
+    ); // Make toast persistent until user acts
   };
 
   // Filter chatrooms based on search term
@@ -60,11 +88,12 @@ const DashboardPage = () => {
   }, [chatrooms, searchTerm]);
 
   return (
-    <div className="flex min-h-screen bg-gray-100 dark:bg-gray-900 text-gray-900 dark:text-gray-100">
+    <div className="flex flex-col sm:flex-row min-h-screen bg-gray-100 dark:bg-gray-900 text-gray-900 dark:text-gray-100">
       <Toaster />
-      
+
       {/* Sidebar - Chatroom Navigation and User Actions */}
-      <div className="w-64 bg-white dark:bg-gray-800 shadow-lg p-6 flex flex-col h-screen">
+      {/* Added responsive widths (w-full on mobile, sm:w-64 on larger screens) */}
+      <div className="w-full sm:w-64 bg-white dark:bg-gray-800 shadow-lg p-6 flex flex-col h-auto sm:h-screen overflow-y-auto">
         <div className="flex-grow">
           <h1 className="text-3xl font-bold text-blue-600 dark:text-blue-400 mb-6">
             Gemini Clone
@@ -90,7 +119,8 @@ const DashboardPage = () => {
           />
 
           {/* Chatroom List */}
-          <ul className="space-y-3 overflow-y-auto h-1/2">
+          {/* Adjusted height for better mobile scrolling within sidebar */}
+          <ul className="space-y-3 max-h-60 sm:max-h-full overflow-y-auto pb-4">
             {filteredChatrooms.length > 0 ? (
               filteredChatrooms.map((room) => (
                 <li
@@ -110,7 +140,7 @@ const DashboardPage = () => {
                       e.preventDefault();
                       handleDelete(room.id, room.title);
                     }}
-                    className="text-red-500 hover:text-red-700 ml-4 opacity-0 group-hover:opacity-100 transition-opacity"
+                    className="text-red-500 hover:text-red-700 ml-4 opacity-0 group-hover:opacity-100 sm:opacity-100 transition-opacity" // Always visible on mobile
                     aria-label={`Delete chatroom ${room.title}`}
                   >
                     {/* Delete Icon (Trash) */}
@@ -139,20 +169,14 @@ const DashboardPage = () => {
 
         {/* User Info and Logout Section */}
         <div className="mt-8 border-t pt-4 border-gray-300 dark:border-gray-600">
-          
           {/* Dark Mode Toggle */}
+
           <div className="flex items-center justify-between mb-4">
-            <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Dark Mode</span>
-            <label className="relative inline-flex items-center cursor-pointer">
-              <input 
-                type="checkbox" 
-                value="" 
-                className="sr-only peer" 
-                checked={isDarkMode} 
-                onChange={toggleDarkMode} 
-              />
-              <div className="w-11 h-6 bg-gray-200 rounded-full peer peer-focus:ring-4 peer-focus:ring-blue-300 dark:peer-focus:ring-blue-800 dark:bg-gray-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-0.5 after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:border-gray-600 peer-checked:bg-blue-600"></div>
-            </label>
+            <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
+              {isDarkMode ?"Dark Mode":"Light Mode"}
+            </span>
+            {/* Use the custom Switch component here */}
+            <Switch isOn={isDarkMode} toggle={toggleDarkMode} />
           </div>
 
           <p className="text-sm text-gray-700 dark:text-gray-300 mb-2">
@@ -172,7 +196,8 @@ const DashboardPage = () => {
       </div>
 
       {/* Main Content Area (Default View) */}
-      <div className="flex-grow p-8 flex items-center justify-center">
+      {/* Ensures main content takes full width on mobile */}
+      <div className="flex-grow w-full p-8 flex items-center justify-center">
         <div className="text-center">
           <h2 className="text-2xl font-bold text-gray-700 dark:text-gray-300">
             Welcome to Gemini Clone
@@ -185,7 +210,9 @@ const DashboardPage = () => {
 
       {/* Create Chatroom Modal */}
       {isModalOpen && (
-        <div className="fixed inset-0 bg-gray-600 bg-opacity-50 flex items-center justify-center">
+        <div className="fixed inset-0 bg-gray-600 bg-opacity-50 flex items-center justify-center p-4">
+          {" "}
+          {/* Added p-4 for mobile padding */}
           <div className="bg-white dark:bg-gray-800 p-8 rounded-lg shadow-xl w-full max-w-sm">
             <h3 className="text-xl font-bold mb-6 text-gray-900 dark:text-white">
               Create New Chatroom
