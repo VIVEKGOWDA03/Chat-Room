@@ -1,3 +1,4 @@
+// tailwind.config.js
 /** @type {import('tailwindcss').Config} */
 export default {
   content: [
@@ -6,7 +7,12 @@ export default {
   ],
   darkMode: 'class', 
   theme: {
-    extend: {},
+    extend: {
+      fontFamily: {
+        // Define a custom font family named 'inter'
+        inter: ['Inter', 'sans-serif'],
+      },
+    },
   },
   plugins: [],
 }

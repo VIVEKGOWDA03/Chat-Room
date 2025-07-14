@@ -1,4 +1,4 @@
-// src/pages/ChatroomPage.jsx (Updated)
+// src/pages/ChatroomPage.jsx (Updated for UI and Scroll Fixes)
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { useChatroomStore } from '../stores/chatroomStore';
@@ -6,31 +6,39 @@ import { useMessageStore } from '../stores/messageStore';
 import { v4 as uuidv4 } from 'uuid';
 import toast from 'react-hot-toast';
 
-// Helper function to format timestamps
 const formatTime = (timestamp) => new Date(timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
+
+const GEMINI_API_KEY = "AIzaSyDsYO1ZUk1PI4lq3-4Wc7x5vn0S1Ew_9e4"; 
+const GEMINI_API_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${GEMINI_API_KEY}`;
 
 const ChatroomPage = () => {
   const { id: chatroomId } = useParams();
   const navigate = useNavigate();
   const { getChatroom } = useChatroomStore();
-  const { addMessage, initializeChatroomMessages, fetchMessages, MESSAGES_PER_PAGE } = useMessageStore();
+  const { addMessage, initializeChatroomMessages, MESSAGES_PER_PAGE } = useMessageStore();
   
   const [inputMessage, setInputMessage] = useState('');
-  const [displayMessages, setDisplayMessages] = useState([]); // Messages currently displayed in the UI
-  const [isTyping, setIsTyping] = useState(false);
-  const [isSending, setIsSending] = useState(false);
+  const [isTyping, setIsTyping] = useState(false); // Indicates API call in progress
+  const [isSending, setIsSending] = useState(false); // Indicates user message is being sent
   const [isLoadingHistory, setIsLoadingHistory] = useState(false);
-  const [currentPage, setCurrentPage] = useState(1);
+  const [loadedMessageCount, setLoadedMessageCount] = useState(MESSAGES_PER_PAGE); // How many messages to display from history
   const [hasMoreHistory, setHasMoreHistory] = useState(true);
 
   const chatroom = getChatroom(chatroomId);
-  const chatEndRef = useRef(null);
-  const loadMoreRef = useRef(null); // Reference for the infinite scroll trigger element
-  const chatContainerRef = useRef(null); // Reference for the scrollable div
-  const previousScrollHeightRef = useRef(0); // For maintaining scroll position after loading history
+  const chatEndRef = useRef(null); // Ref for the very bottom of the chat
+  const loadMoreRef = useRef(null); // Ref for the element that triggers loading more history
+  const chatContainerRef = useRef(null); // Ref for the main scrollable chat div
+  const previousScrollHeightRef = useRef(0); // To maintain scroll position when loading more history
 
-  // Fetch all messages from the store state (Reactively updated)
+  // Get all messages for the current chatroom from the store (reactive)
   const allStoredMessages = useMessageStore(state => state.messages[chatroomId] || []);
+
+  // Derive the messages to display based on loadedMessageCount
+  const messagesToDisplay = useMemo(() => {
+    // Slice from the end to get the most recent 'loadedMessageCount' messages
+    return allStoredMessages.slice(Math.max(0, allStoredMessages.length - loadedMessageCount));
+  }, [allStoredMessages, loadedMessageCount]);
 
   // --- Initialization and Validation ---
   useEffect(() => {
@@ -40,93 +48,70 @@ const ChatroomPage = () => {
       return;
     }
     
-    // Initialize messages if not done (e.g., first time visiting)
+    // Initialize messages for this chatroom in the store if it's new
     initializeChatroomMessages(chatroomId);
 
-    // Reset pagination and load initial messages when chatroomId changes
-    setCurrentPage(1);
-    setIsLoadingHistory(false);
-    setHasMoreHistory(true);
+    // Reset pagination states when chatroomId changes
+    setLoadedMessageCount(MESSAGES_PER_PAGE); // Start with the first page of messages
+    setHasMoreHistory(true); // Assume there's more history initially
+    setIsLoadingHistory(false); // Reset loading state
     
-  }, [chatroomId, chatroom, navigate, initializeChatroomMessages]);
+  }, [chatroomId, chatroom, navigate, initializeChatroomMessages, MESSAGES_PER_PAGE]);
 
-  // --- Load Initial Messages and Handle Pagination ---
-  const loadMessages = useCallback(async (page, initialLoad = false) => {
-    if (isLoadingHistory || !hasMoreHistory) return;
+  // --- Auto-Scroll to Latest Message (when new messages are added) ---
+  useEffect(() => {
+    // Only auto-scroll if a new message was added (total message count increased)
+    // or if the user is already near the bottom (within a buffer)
+    if (chatEndRef.current && chatContainerRef.current) {
+      const { scrollTop, scrollHeight, clientHeight } = chatContainerRef.current;
+      const isAtBottom = scrollHeight - scrollTop <= clientHeight + 100; // 100px buffer
 
-    setIsLoadingHistory(true);
-    
-    // Check if we have loaded all available messages
-    if (page * MESSAGES_PER_PAGE >= allStoredMessages.length && !initialLoad) {
-      setHasMoreHistory(false);
-      setIsLoadingHistory(false);
+      // If the total number of messages has increased (new message added)
+      // OR if the user is already near the bottom, then scroll to the end.
+      if (allStoredMessages.length > messagesToDisplay.length || isAtBottom) {
+        chatEndRef.current.scrollIntoView({ behavior: "smooth" });
+      }
+    }
+  }, [allStoredMessages.length, messagesToDisplay.length]); // Trigger when total messages or displayed messages count changes
+
+
+  // --- Load More History (Infinite Scroll Up) ---
+  const loadMoreHistory = useCallback(async () => {
+    if (isLoadingHistory || !hasMoreHistory || !chatContainerRef.current) {
       return;
     }
 
-    try {
-      // Simulate fetching older messages
-      const newMessages = await fetchMessages(chatroomId, page);
+    setIsLoadingHistory(true);
+    previousScrollHeightRef.current = chatContainerRef.current.scrollHeight; // Store current scroll height
 
-      if (newMessages.length === 0) {
-        setHasMoreHistory(false);
-      }
-      
-      setDisplayMessages(prevMessages => {
-        // Prepend new messages to the display list (reverse infinite scroll)
-        return [...newMessages, ...prevMessages];
-      });
+    // Calculate the new total number of messages to load
+    const newLoadedCount = loadedMessageCount + MESSAGES_PER_PAGE;
+    
+    // Simulate a network delay for fetching older messages
+    await new Promise(resolve => setTimeout(resolve, 500));
 
-      // If this is the initial load, set `hasMoreHistory` based on initial message count
-      if (initialLoad) {
-        setHasMoreHistory(newMessages.length === MESSAGES_PER_PAGE);
-      }
-      
-      setCurrentPage(page + 1);
+    // Update the loaded message count, capping it at the total available messages
+    setLoadedMessageCount(Math.min(newLoadedCount, allStoredMessages.length));
 
-    } catch (error) {
-      console.error("Error loading chat history:", error);
-      toast.error("Failed to load chat history.");
-    } finally {
-      setIsLoadingHistory(false);
-    }
-  }, [isLoadingHistory, hasMoreHistory, fetchMessages, chatroomId, allStoredMessages.length, MESSAGES_PER_PAGE]);
-  
-  // Initial load of messages when the component mounts or chatroom changes
-  useEffect(() => {
-    // Clear display messages and load page 1 when chatroom ID changes
-    setDisplayMessages([]); 
-    loadMessages(1, true); 
-  }, [loadMessages]);
-
-  // --- Auto-Scroll to Latest Message (Only if messages added at the bottom) ---
-  useEffect(() => {
-    // Only auto-scroll to the bottom if the new message count is greater 
-    // than the previous (meaning a new message was added, not history loaded)
-    const storedMessagesCount = allStoredMessages.length;
-    if (storedMessagesCount > displayMessages.length && chatEndRef.current) {
-        chatEndRef.current.scrollIntoView({ behavior: "smooth" });
+    // Determine if there's still more history to load
+    if (newLoadedCount >= allStoredMessages.length) {
+      setHasMoreHistory(false);
     }
     
-    // Update display messages to match the store state for reactive updates
-    // We update the state here to reflect new messages added by the input or AI
-    setDisplayMessages(allStoredMessages); 
-  }, [allStoredMessages]);
+    setIsLoadingHistory(false);
+  }, [isLoadingHistory, hasMoreHistory, loadedMessageCount, allStoredMessages.length, MESSAGES_PER_PAGE]);
 
-
-  // --- Intersection Observer for Infinite Scroll ---
+  // --- Intersection Observer for Infinite Scroll Trigger ---
   useEffect(() => {
     const observer = new IntersectionObserver(
       (entries) => {
-        // If the loadMoreRef (top of the chat) is intersecting and we are not already loading
+        // If the loadMoreRef (element at the top of chat) is intersecting
+        // and we are not already loading history and there is more history to load
         if (entries[0].isIntersecting && !isLoadingHistory && hasMoreHistory) {
-          // Store the current scroll height before loading more history
-          if (chatContainerRef.current) {
-            previousScrollHeightRef.current = chatContainerRef.current.scrollHeight;
-          }
-          loadMessages(currentPage);
+          loadMoreHistory();
         }
       },
-      { threshold: 0.5 }
+      { threshold: 0.1 } // Trigger when 10% of the element is visible
     );
 
     if (loadMoreRef.current) {
@@ -138,62 +123,122 @@ const ChatroomPage = () => {
         observer.unobserve(loadMoreRef.current);
       }
     };
-  }, [loadMessages, currentPage, isLoadingHistory, hasMoreHistory]);
+  }, [loadMoreHistory, isLoadingHistory, hasMoreHistory]);
+
 
   // --- Maintain Scroll Position after Loading History ---
   useEffect(() => {
-    // When `displayMessages` updates due to loading history, adjust scroll position
     if (chatContainerRef.current && isLoadingHistory === false && previousScrollHeightRef.current > 0) {
       const currentScrollHeight = chatContainerRef.current.scrollHeight;
       const newScrollTop = currentScrollHeight - previousScrollHeightRef.current;
       chatContainerRef.current.scrollTop = newScrollTop;
-      previousScrollHeightRef.current = 0; // Reset
+      previousScrollHeightRef.current = 0; // Reset after adjustment
     }
-  }, [displayMessages, isLoadingHistory]);
+  }, [messagesToDisplay, isLoadingHistory]); // Trigger when displayed messages change or loading finishes
 
 
-  // --- Simulated AI Response and Throttling (Remains the same) ---
-  const simulateAIResponse = useCallback(() => {
-    setIsTyping(true);
-    const thinkingDelay = Math.random() * 1500 + 1000;
+  // --- Call Gemini API for Response ---
+  const getGeminiResponse = useCallback(async (userPrompt) => {
+    setIsTyping(true); // Show "Gemini is typing..."
     
-    setTimeout(() => {
-      setIsTyping(false);
+    try {
+      // Prepare chat history for Gemini API
+      // Gemini API expects alternating 'user' and 'model' roles.
+      // Filter out image messages for text-only API call for simplicity.
+      // Include the latest user prompt in the history for context.
+      const chatHistory = allStoredMessages
+        .filter(msg => msg.type === 'text')
+        .map(msg => ({
+          role: msg.sender === 'user' ? 'user' : 'model',
+          parts: [{ text: msg.text }]
+        }));
+      
+      // Add the current user's message to the history for the API call context
+      chatHistory.push({ role: 'user', parts: [{ text: userPrompt }] });
+
+      const payload = { contents: chatHistory };
+
+      const response = await fetch(GEMINI_API_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(`API error: ${response.status} - ${errorData.error.message || 'Unknown error'}`);
+      }
+
+      const result = await response.json();
+      
+      let geminiText = "Could not get a response from Gemini.";
+      if (result.candidates && result.candidates.length > 0 &&
+          result.candidates[0].content && result.candidates[0].content.parts &&
+          result.candidates[0].content.parts.length > 0) {
+        geminiText = result.candidates[0].content.parts[0].text;
+      }
+
       const aiMessage = {
         id: uuidv4(),
-        text: "I received your message. How else can I assist you?",
+        text: geminiText,
         sender: 'Gemini',
         timestamp: Date.now(),
         type: 'text'
       };
       addMessage(chatroomId, aiMessage);
-    }, thinkingDelay);
-  }, [addMessage, chatroomId]);
 
-  // --- Handle Message Sending (User) and Image Uploads (Remains the same) ---
-  const handleSendMessage = (e) => {
+    } catch (error) {
+      console.error("Error calling Gemini API:", error);
+      toast.error(`Gemini API error: ${error.message}`);
+      // Add a fallback message if API fails
+      addMessage(chatroomId, {
+        id: uuidv4(),
+        text: "Sorry, I'm having trouble connecting to Gemini right now. Please try again later.",
+        sender: 'Gemini',
+        timestamp: Date.now(),
+        type: 'text'
+      });
+    } finally {
+      setIsTyping(false); // Hide "Gemini is typing..."
+    }
+  }, [addMessage, chatroomId, allStoredMessages]); // Depend on allStoredMessages to send full context
+
+
+  // --- Handle Message Sending (User) ---
+  const handleSendMessage = async (e) => { 
     e.preventDefault();
     if (!inputMessage.trim() || isSending) return;
 
     setIsSending(true);
+    const messageToSend = inputMessage.trim();
+
+    // Create user message object
     const userMessage = {
       id: uuidv4(),
-      text: inputMessage,
+      text: messageToSend,
       sender: 'user',
       timestamp: Date.now(),
       type: 'text',
     };
+
+    // Add user message to the store first
     addMessage(chatroomId, userMessage);
+    
+    // Clear input
     setInputMessage('');
     setIsSending(false);
-    simulateAIResponse();
+
+    // Now, call Gemini API for response with the user's message
+    await getGeminiResponse(messageToSend); 
   };
 
-  const handleImageUpload = (e) => {
+  // --- Handle Image Uploads ---
+  const handleImageUpload = async (e) => { 
     const file = e.target.files[0];
     if (!file) return;
 
     const imageUrl = URL.createObjectURL(file);
+    
     const imageMessage = {
       id: uuidv4(),
       url: imageUrl,
@@ -203,8 +248,11 @@ const ChatroomPage = () => {
     };
 
     addMessage(chatroomId, imageMessage);
-    e.target.value = null;
-    simulateAIResponse();
+    e.target.value = null; // Reset file input
+
+    // For simplicity, Gemini API will respond with text even for image uploads.
+    // Full image understanding would require converting image to base64 and sending it to API.
+    await getGeminiResponse("User uploaded an image."); // Send a generic prompt for image upload
   };
   
   // --- Copy-to-Clipboard Feature ---
@@ -212,7 +260,6 @@ const ChatroomPage = () => {
     navigator.clipboard.writeText(text);
     toast.success("Message copied to clipboard!");
   }
-
 
   if (!chatroom) return null;
 
@@ -237,13 +284,24 @@ const ChatroomPage = () => {
       >
         
         {/* Infinite Scroll Load Trigger (placed at the top) */}
-        <div ref={loadMoreRef} className="py-2 text-center text-gray-500 dark:text-gray-400">
-          {isLoadingHistory ? 'Loading history...' : hasMoreHistory && 'Scroll up to load older messages'}
-          {!hasMoreHistory && 'End of chat history'}
-        </div>
+        {hasMoreHistory && (
+          <div ref={loadMoreRef} className="py-2 text-center text-gray-500 dark:text-gray-400">
+            {isLoadingHistory ? 'Loading history...' : 'Scroll up to load older messages'}
+          </div>
+        )}
+        {!hasMoreHistory && allStoredMessages.length > 0 && (
+          <div className="py-2 text-center text-gray-500 dark:text-gray-400 text-sm">
+            End of chat history
+          </div>
+        )}
+        {allStoredMessages.length === 0 && (
+          <div className="py-2 text-center text-gray-500 dark:text-gray-400 text-sm">
+            Start your conversation with Gemini!
+          </div>
+        )}
 
         {/* Display Messages */}
-        {displayMessages.map((msg, index) => (
+        {messagesToDisplay.map((msg) => (
           <div key={msg.id} className={`flex ${msg.sender === 'user' ? 'justify-end' : 'justify-start'}`}>
             <div 
               className={`max-w-xl p-4 rounded-xl shadow-md relative group 
@@ -253,7 +311,7 @@ const ChatroomPage = () => {
                 }`}
             >
               {/* Message Content */}
-              {msg.type === 'text' && <p>{msg.text}</p>}
+              {msg.type === 'text' && <p className="whitespace-pre-wrap">{msg.text}</p>} {/* Added whitespace-pre-wrap */}
               {msg.type === 'image' && (
                 <img 
                   src={msg.url} 
@@ -325,7 +383,7 @@ const ChatroomPage = () => {
             onChange={(e) => setInputMessage(e.target.value)}
             placeholder="Message Gemini..."
             className="flex-grow px-4 py-3 rounded-full bg-gray-200 dark:bg-gray-700 border border-transparent focus:outline-none focus:border-blue-500 transition duration-200"
-            disabled={isTyping}
+            disabled={isTyping || isSending} // Disable input while sending or typing
           />
 
           {/* Send Button */}

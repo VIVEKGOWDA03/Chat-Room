@@ -3,57 +3,52 @@ import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
 import { v4 as uuidv4 } from 'uuid';
 
-// We will store messages indexed by chatroom ID
 export const useMessageStore = create(
   persist(
     (set, get) => ({
-      // messages is an object where keys are chatroom IDs and values are arrays of messages
       messages: {}, 
-      
-      // Constants for pagination
-      MESSAGES_PER_PAGE: 20,
-      
-      // Function to add a new message to a specific chatroom
+      MESSAGES_PER_PAGE: 20, // Number of messages to load per page for infinite scroll
+
       addMessage: (chatroomId, message) => {
         set((state) => {
           const updatedMessages = { ...state.messages };
           if (!updatedMessages[chatroomId]) {
             updatedMessages[chatroomId] = [];
           }
-          // Add the new message to the end of the array
           updatedMessages[chatroomId] = [...updatedMessages[chatroomId], message];
-          
           return { messages: updatedMessages };
         });
       },
       
-      // Function to simulate fetching messages with pagination
-      // This is a simplified simulation; in a real app, it would fetch from a backend
-      fetchMessages: (chatroomId, page) => {
-        const allMessages = get().messages[chatroomId] || [];
-        const start = allMessages.length - (page * get().MESSAGES_PER_PAGE);
-        const end = allMessages.length - ((page - 1) * get().MESSAGES_PER_PAGE);
-
-        // Simulate a delay for fetching messages (e.g., 500ms)
+      // This function is now simplified as the slicing logic is handled in ChatroomPage
+      // It just returns all messages for a chatroom.
+      fetchMessages: (chatroomId) => { // Removed 'page' argument as slicing is now external
         return new Promise(resolve => {
           setTimeout(() => {
-            // Return messages in reverse order (oldest first) for infinite scroll display
-            const paginatedMessages = allMessages.slice(Math.max(0, start), end).reverse(); 
-            resolve(paginatedMessages);
+            resolve(get().messages[chatroomId] || []);
           }, 500);
         });
       },
 
-      // Helper function to initialize messages for a chatroom if it doesn't exist
       initializeChatroomMessages: (chatroomId) => {
         if (!get().messages[chatroomId]) {
+          const initialMessages = [];
+          // Add enough initial messages to demonstrate infinite scroll
+          for (let i = 0; i < 25; i++) { // Start with 25 messages (more than MESSAGES_PER_PAGE)
+            initialMessages.push({ 
+              id: uuidv4(), 
+              text: `This is an older message ${i + 1}.`, 
+              sender: i % 2 === 0 ? 'Gemini' : 'user', 
+              timestamp: Date.now() - (25 - i) * 10000 // Older timestamps
+            });
+          }
+          // Add a recent welcome message
+          initialMessages.push({ id: uuidv4(), text: 'Hello! How can I help you today?', sender: 'Gemini', timestamp: Date.now() });
+
           set((state) => ({
             messages: {
               ...state.messages,
-              [chatroomId]: [
-                // Initial welcome message for a new chatroom
-                { id: uuidv4(), text: 'Hello! How can I help you today?', sender: 'Gemini', timestamp: Date.now(), type: 'text' }
-              ]
+              [chatroomId]: initialMessages
             }
           }));
         }
